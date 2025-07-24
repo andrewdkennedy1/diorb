@@ -1,14 +1,15 @@
 //! TUI screen components
-//! 
+//!
 //! Contains individual screen implementations for different application states.
 
-pub mod start;
 pub mod config;
-pub mod running;
+pub mod history;
 pub mod results;
+pub mod running;
+pub mod start;
 
-
-pub use start::StartScreen;
 pub use config::ConfigScreen;
+pub use history::HistoryScreen;
+pub use results::{ResultAction, ResultsScreen};
 pub use running::RunningScreen;
-pub use results::{ResultsScreen, ResultAction};
+pub use start::StartScreen;
