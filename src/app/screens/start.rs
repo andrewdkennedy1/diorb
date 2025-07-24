@@ -1,5 +1,5 @@
 //! Start screen implementation
-//! 
+//!
 //! Main menu with Start Test, View Results, Settings, Exit options.
 //! Includes navigation highlighting and responsive layout.
 
@@ -28,10 +28,7 @@ impl StartScreen {
 
         // For now, we'll mock the disk list.
         // In a real application, this would scan the system.
-        let disks = vec![
-            PathBuf::from("C:\\"),
-            PathBuf::from("D:\\"),
-        ];
+        let disks = vec![PathBuf::from("C:\\"), PathBuf::from("D:\\")];
 
         Self {
             disks,
@@ -73,9 +70,9 @@ impl StartScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),  // Title and subtitle
-                Constraint::Min(12),    // Disk list area
-                Constraint::Length(3),  // Help text
+                Constraint::Length(5), // Title and subtitle
+                Constraint::Min(12),   // Disk list area
+                Constraint::Length(3), // Help text
             ])
             .split(size);
 
@@ -94,20 +91,24 @@ impl StartScreen {
         let title_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Main title
-                Constraint::Length(2),  // Subtitle
+                Constraint::Length(3), // Main title
+                Constraint::Length(2), // Subtitle
             ])
             .split(area);
 
         // Main title
         let title = Paragraph::new("DIORB")
-            .style(Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
         f.render_widget(title, title_chunks[0]);
 
         // Subtitle
@@ -119,38 +120,64 @@ impl StartScreen {
 
     /// Render the main menu
     fn render_menu(&mut self, f: &mut Frame, area: ratatui::layout::Rect) {
-        let items: Vec<ListItem> = self.disks
+        let items: Vec<ListItem> = self
+            .disks
             .iter()
             .map(|disk| ListItem::new(disk.to_string_lossy().into_owned()))
             .collect();
 
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("Select a Disk"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Select a Disk"),
+            )
             .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black))
             .highlight_symbol(">> ");
 
         f.render_stateful_widget(list, area, &mut self.list_state);
     }
 
-
     /// Render the help text
     fn render_help(&self, f: &mut Frame, area: ratatui::layout::Rect) {
-        let help_text = vec![
-            Line::from(vec![
-                Span::styled("↑↓", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Navigate  "),
-                Span::styled("Enter", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Select  "),
-                Span::styled("Q", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Quit"),
-            ]),
-        ];
+        let help_text = vec![Line::from(vec![
+            Span::styled(
+                "↑↓",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Navigate  "),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Select  "),
+            Span::styled(
+                "→",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" History  "),
+            Span::styled(
+                "Q",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Quit"),
+        ])];
 
         let help = Paragraph::new(help_text)
             .alignment(Alignment::Center)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
 
         f.render_widget(help, area);
     }
@@ -176,11 +203,11 @@ mod tests {
     #[test]
     fn test_menu_navigation() {
         let mut screen = StartScreen::new();
-        
+
         // Test moving down
         screen.select_next();
         assert_eq!(screen.selected_index, 1);
-        
+
         // Test wrapping to beginning
         screen.select_next();
         assert_eq!(screen.selected_index, 0);
@@ -189,11 +216,11 @@ mod tests {
     #[test]
     fn test_menu_navigation_up() {
         let mut screen = StartScreen::new();
-        
+
         // Test moving up from first item (should wrap to last)
         screen.select_previous();
         assert_eq!(screen.selected_index, 1);
-        
+
         // Test moving up normally
         screen.select_previous();
         assert_eq!(screen.selected_index, 0);

@@ -1,13 +1,13 @@
 //! Benchmark result data models
-//! 
+//!
 //! Contains structures for storing and serializing benchmark results,
 //! performance metrics, and latency statistics.
 
-use std::collections::HashMap;
-use std::time::Duration;
+use crate::config::BenchmarkConfig;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use crate::config::BenchmarkConfig;
+use std::collections::HashMap;
+use std::time::Duration;
 
 /// Complete benchmark result containing configuration, metrics, and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,7 +71,7 @@ pub struct SystemInfo {
 }
 
 /// Storage device information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StorageInfo {
     /// Device name or identifier
     pub device: String,
@@ -153,11 +153,7 @@ impl BenchmarkResult {
 
 impl PerformanceMetrics {
     /// Create new performance metrics
-    pub fn new(
-        bytes_processed: u64,
-        elapsed_time: Duration,
-        latency: LatencyStats,
-    ) -> Self {
+    pub fn new(bytes_processed: u64, elapsed_time: Duration, latency: LatencyStats) -> Self {
         let elapsed_secs = elapsed_time.as_secs_f64();
         let throughput_mbps = if elapsed_secs > 0.0 {
             (bytes_processed as f64) / (1024.0 * 1024.0) / elapsed_secs
@@ -187,6 +183,22 @@ impl PerformanceMetrics {
         } else {
             0.0
         }
+    }
+
+    /// Validate that the stored throughput is consistent with bytes and time
+    pub fn validate_throughput(&self) -> bool {
+        use crate::util::units::calculate_throughput_mbps;
+
+        if self.elapsed_time.is_zero() {
+            return self.throughput_mbps == 0.0;
+        }
+
+        let expected = calculate_throughput_mbps(self.bytes_processed, self.elapsed_time);
+        if expected == 0.0 {
+            return self.throughput_mbps == 0.0;
+        }
+
+        ((self.throughput_mbps - expected) / expected).abs() < 0.01
     }
 }
 
@@ -241,8 +253,8 @@ impl LatencyStats {
     /// Check if latency meets accuracy requirements for storage type
     pub fn meets_latency_accuracy(&self, storage_type: StorageType) -> bool {
         let accuracy_threshold = match storage_type {
-            StorageType::Ssd => Duration::from_millis(1),  // ±1ms for SSD
-            StorageType::Hdd => Duration::from_millis(3),  // ±3ms for HDD
+            StorageType::Ssd => Duration::from_millis(1), // ±1ms for SSD
+            StorageType::Hdd => Duration::from_millis(3), // ±3ms for HDD
             StorageType::Nvme => Duration::from_micros(500), // ±0.5ms for NVMe
         };
 
@@ -268,6 +280,44 @@ impl LatencyStats {
     /// Get the 99th percentile latency
     pub fn p99(&self) -> Duration {
         self.percentiles.get(&99).copied().unwrap_or(self.max)
+    }
+
+    /// Create latency statistics from a list of samples
+    pub fn from_samples(samples: &[Duration]) -> Self {
+        if samples.is_empty() {
+            return Self::default();
+        }
+
+        let mut sorted = samples.to_vec();
+        sorted.sort();
+        let min = sorted[0];
+        let max = sorted[sorted.len() - 1];
+        let avg_nanos: u128 =
+            sorted.iter().map(|d| d.as_nanos()).sum::<u128>() / sorted.len() as u128;
+        let avg = Duration::from_nanos(avg_nanos as u64);
+
+        let mut percentiles = HashMap::new();
+        percentiles.insert(50, sorted[sorted.len() * 50 / 100]);
+        percentiles.insert(95, sorted[sorted.len() * 95 / 100]);
+        percentiles.insert(99, sorted[sorted.len() * 99 / 100]);
+
+        Self {
+            min,
+            avg,
+            max,
+            percentiles,
+        }
+    }
+}
+
+impl Default for LatencyStats {
+    fn default() -> Self {
+        Self {
+            min: Duration::default(),
+            avg: Duration::default(),
+            max: Duration::default(),
+            percentiles: HashMap::new(),
+        }
     }
 }
 
@@ -323,7 +373,7 @@ impl StorageType {
     /// Infer storage type from performance characteristics
     pub fn infer_from_performance(throughput_mbps: f64, avg_latency: Duration) -> Self {
         let latency_ms = avg_latency.as_secs_f64() * 1000.0;
-        
+
         if throughput_mbps > 1000.0 && latency_ms < 1.0 {
             StorageType::Nvme
         } else if throughput_mbps > 100.0 && latency_ms < 10.0 {
@@ -406,8 +456,7 @@ mod percentiles_serde {
         Ok(duration_map)
     }
 }
-#
-[cfg(test)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::{BenchmarkConfig, BenchmarkMode};
@@ -443,7 +492,7 @@ mod tests {
         SystemInfo {
             os: "Linux x86_64".to_string(),
             cpu: "Intel Core i7-9700K".to_string(),
-            memory_total: 16 * 1024 * 1024 * 1024, // 16 GiB
+            memory_total: 16 * 1024 * 1024 * 1024,    // 16 GiB
             memory_available: 8 * 1024 * 1024 * 1024, // 8 GiB
             storage_info: StorageInfo {
                 device: "/dev/nvme0n1".to_string(),
@@ -460,7 +509,8 @@ mod tests {
         let metrics = create_test_performance_metrics();
         let system_info = create_test_system_info();
 
-        let result = BenchmarkResult::with_system_info(config.clone(), metrics.clone(), system_info.clone());
+        let result =
+            BenchmarkResult::with_system_info(config.clone(), metrics.clone(), system_info.clone());
 
         assert_eq!(result.config.mode.description(), config.mode.description());
         assert_eq!(result.metrics.bytes_processed, metrics.bytes_processed);
@@ -503,11 +553,8 @@ mod tests {
 
     #[test]
     fn test_performance_metrics_zero_time() {
-        let metrics = PerformanceMetrics::new(
-            1024,
-            Duration::from_secs(0),
-            create_test_latency_stats(),
-        );
+        let metrics =
+            PerformanceMetrics::new(1024, Duration::from_secs(0), create_test_latency_stats());
 
         assert_eq!(metrics.throughput_mbps, 0.0);
         assert_eq!(metrics.iops, 0.0);
@@ -617,10 +664,8 @@ mod tests {
             create_test_system_info(),
         );
 
-        assert!(base_result.meets_accuracy_requirements(&[
-            consistent_result.clone(),
-            consistent_result.clone(),
-        ]));
+        assert!(base_result
+            .meets_accuracy_requirements(&[consistent_result.clone(), consistent_result.clone(),]));
 
         // Test with inconsistent results (should fail)
         let inconsistent_metrics = PerformanceMetrics::new(
@@ -634,10 +679,9 @@ mod tests {
             create_test_system_info(),
         );
 
-        assert!(!base_result.meets_accuracy_requirements(&[
-            consistent_result,
-            inconsistent_result,
-        ]));
+        assert!(
+            !base_result.meets_accuracy_requirements(&[consistent_result, inconsistent_result,])
+        );
     }
 
     #[test]
@@ -667,11 +711,14 @@ mod tests {
         assert!(!json.is_empty());
 
         // Test JSON deserialization
-        let deserialized: BenchmarkResult = 
+        let deserialized: BenchmarkResult =
             serde_json::from_str(&json).expect("Failed to deserialize from JSON");
 
         assert_eq!(result.config.file_size, deserialized.config.file_size);
-        assert_eq!(result.metrics.bytes_processed, deserialized.metrics.bytes_processed);
+        assert_eq!(
+            result.metrics.bytes_processed,
+            deserialized.metrics.bytes_processed
+        );
         assert_eq!(result.system_info.os, deserialized.system_info.os);
         assert_eq!(result.timestamp, deserialized.timestamp);
     }
@@ -693,7 +740,7 @@ mod tests {
 
         let serialized = serde_json::to_string(&percentiles).unwrap();
         let deserialized: HashMap<u8, Duration> = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(percentiles.len(), deserialized.len());
         for (&key, &value) in &percentiles {
             assert_eq!(Some(&value), deserialized.get(&key));
@@ -712,7 +759,7 @@ mod tests {
         for mode in modes {
             let mut config = create_test_config();
             config.mode = mode;
-            
+
             let result = BenchmarkResult::with_system_info(
                 config,
                 create_test_performance_metrics(),
@@ -722,5 +769,30 @@ mod tests {
             let summary = result.summary();
             assert!(summary.contains(result.config.mode.description()));
         }
+    }
+
+    #[test]
+    fn test_latency_stats_from_samples() {
+        let samples = vec![
+            Duration::from_micros(100),
+            Duration::from_micros(200),
+            Duration::from_micros(300),
+        ];
+
+        let stats = LatencyStats::from_samples(&samples);
+        assert_eq!(stats.min, Duration::from_micros(100));
+        assert_eq!(stats.max, Duration::from_micros(300));
+        assert_eq!(stats.avg, Duration::from_micros(200));
+        assert_eq!(stats.p95(), Duration::from_micros(300));
+    }
+
+    #[test]
+    fn test_performance_metrics_validate_throughput() {
+        let metrics = PerformanceMetrics::new(
+            2 * 1024 * 1024,
+            Duration::from_secs(2),
+            create_test_latency_stats(),
+        );
+        assert!(metrics.validate_throughput());
     }
 }

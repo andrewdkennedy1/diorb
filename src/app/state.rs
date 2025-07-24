@@ -51,6 +51,10 @@ pub enum NavigationAction {
     Previous,
     /// Quit application (q, Q, Ctrl+C)
     Quit,
+    /// Cancel current operation
+    Cancel,
+    /// Retry the last operation
+    Retry,
     /// No action
     None,
 }
@@ -198,6 +202,10 @@ impl StateManager {
             
             // Back/cancel
             KeyCode::Esc | KeyCode::Backspace => NavigationAction::Back,
+            KeyCode::Char('c') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                NavigationAction::Cancel
+            }
+            KeyCode::Char('r') => NavigationAction::Retry,
             
             // Tab navigation
             KeyCode::Tab => {
@@ -329,6 +337,16 @@ mod tests {
         assert_eq!(
             StateManager::key_to_navigation(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
             NavigationAction::Back
+        );
+
+        // Test cancel and retry keys
+        assert_eq!(
+            StateManager::key_to_navigation(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
+            NavigationAction::Cancel
+        );
+        assert_eq!(
+            StateManager::key_to_navigation(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
+            NavigationAction::Retry
         );
         
         // Test tab navigation
