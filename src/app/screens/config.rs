@@ -82,10 +82,13 @@ impl ConfigScreen {
             self.handle_dropdown_events(key);
         } else {
             match key.code {
-                crossterm::event::KeyCode::Up => self.select_previous_field(),
-                crossterm::event::KeyCode::Down => self.select_next_field(),
-                crossterm::event::KeyCode::Enter => self.is_dropdown_active = true,
+                crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => self.select_previous_field(),
+                crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => self.select_next_field(),
+                crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ') => self.is_dropdown_active = true,
                 crossterm::event::KeyCode::Esc => return Some(AppState::Start),
+                crossterm::event::KeyCode::Char('s') | crossterm::event::KeyCode::Char('S') => {
+                    return Some(AppState::Running); // Start test
+                }
                 _ => {}
             }
         }
@@ -94,9 +97,9 @@ impl ConfigScreen {
 
     fn handle_dropdown_events(&mut self, key: crossterm::event::KeyEvent) {
         match key.code {
-            crossterm::event::KeyCode::Up => self.select_previous_option(),
-            crossterm::event::KeyCode::Down => self.select_next_option(),
-            crossterm::event::KeyCode::Enter => self.confirm_selection(),
+            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => self.select_previous_option(),
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => self.select_next_option(),
+            crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ') => self.confirm_selection(),
             crossterm::event::KeyCode::Esc => self.is_dropdown_active = false,
             _ => {}
         }
@@ -115,7 +118,7 @@ impl ConfigScreen {
     }
 
     fn select_previous_option(&mut self) {
-        let options = self.get_current_options();
+        let _options = self.get_current_options();
         let selected = self.dropdown_state.selected().unwrap_or(0);
         if selected > 0 {
             self.dropdown_state.select(Some(selected - 1));
@@ -176,8 +179,71 @@ impl ConfigScreen {
     }
 
     fn get_disk_options(&self) -> Vec<String> {
-        // In a real implementation, this would scan for disks.
-        vec!["/dev/sda".to_string(), "C:\\".to_string()]
+        let mut disks = Vec::new();
+        
+        #[cfg(windows)]
+        {
+            // On Windows, check drive letters
+            let drives_mask = unsafe { 
+                extern "system" {
+                    fn GetLogicalDrives() -> u32;
+                }
+                GetLogicalDrives()
+            };
+            
+            for i in 0..26 {
+                if (drives_mask & (1 << i)) != 0 {
+                    let drive_letter = (b'A' + i as u8) as char;
+                    let path = format!("{}:\\", drive_letter);
+                    if std::path::Path::new(&path).exists() {
+                        disks.push(path);
+                    }
+                }
+            }
+            
+            // Fallback if API failed
+            if disks.is_empty() {
+                for drive in 'C'..='Z' {
+                    let path = format!("{}:\\", drive);
+                    if std::path::Path::new(&path).exists() {
+                        disks.push(path);
+                    }
+                }
+            }
+        }
+        
+        #[cfg(unix)]
+        {
+            let common_paths = [
+                "/",
+                "/home",
+                "/tmp",
+                "/var",
+            ];
+            
+            for &path_str in &common_paths {
+                let path = std::path::Path::new(path_str);
+                if path.exists() && path.is_dir() {
+                    disks.push(path_str.to_string());
+                }
+            }
+        }
+        
+        // Always include current directory
+        if let Ok(current_dir) = std::env::current_dir() {
+            let current_str = current_dir.to_string_lossy().to_string();
+            if !disks.contains(&current_str) {
+                disks.insert(0, current_str);
+            }
+        }
+        
+        // Fallback if no disks found
+        if disks.is_empty() {
+            disks.push(".".to_string());
+        }
+        
+        disks.sort();
+        disks
     }
 
     fn get_mode_options(&self) -> Vec<BenchmarkMode> {
@@ -281,7 +347,7 @@ impl ConfigScreen {
     }
 
     fn render_help(&self, frame: &mut Frame, area: Rect) {
-        let help_text = "↑↓: Navigate | Enter: Select | Esc: Back";
+        let help_text = "↑↓/jk: Navigate | Enter/Space: Select | S: Start Test | Esc: Back";
         let help = Paragraph::new(help_text)
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));

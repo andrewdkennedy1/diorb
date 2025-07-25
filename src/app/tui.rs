@@ -4,7 +4,7 @@
 //! and keyboard event processing for the TUI application.
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -94,7 +94,13 @@ impl Tui {
 
         if event::poll(timeout)? {
             if let Event::Key(key) = event::read()? {
-                return Ok(Some(key));
+                // Filter out key release events and other unwanted events
+                if key.kind == crossterm::event::KeyEventKind::Press {
+                    println!("TUI: Key press detected: {:?}", key);
+                    return Ok(Some(key));
+                } else {
+                    println!("TUI: Ignoring key event (not press): {:?}", key);
+                }
             }
         }
 

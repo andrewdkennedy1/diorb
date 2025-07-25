@@ -95,34 +95,51 @@ impl SequentialBenchmark {
         let mut latency_samples = Vec::new();
         let mut last_progress_update = Instant::now();
         
+        println!("Starting sequential write test: {} bytes in {} byte blocks", 
+                 self.config.file_size, self.config.block_size);
+        
         // Write data in blocks
         while bytes_written < self.config.file_size {
             let write_start = Instant::now();
             
             // Calculate how much to write this iteration
             let remaining = self.config.file_size - bytes_written;
-            let write_size = std::cmp::min(remaining, self.config.block_size);
-            let write_buffer = &buffer[..write_size as usize];
+            let write_size = std::cmp::min(remaining, self.config.block_size) as usize;
+            let chunk = &buffer[..write_size];
             
-            // Perform write operation
-            let written = temp_file.file.write_direct(write_buffer)
-                .map_err(|e| DIOrbError::BenchmarkError(format!("Write failed: {}", e)))?;
+            // Perform actual write operation
+            let written = temp_file.file.write_direct(chunk)
+                .map_err(|e| {
+                    eprintln!("Write operation failed at byte {}: {}", bytes_written, e);
+                    DIOrbError::BenchmarkError(format!("Write failed at byte {}: {}", bytes_written, e))
+                })?;
+            
+            if written == 0 {
+                return Err(DIOrbError::BenchmarkError("Write returned 0 bytes".to_string()));
+            }
             
             let write_duration = write_start.elapsed();
             latency_samples.push(write_duration);
             
             bytes_written += written as u64;
             
-            // Send progress update every 200ms
-            if last_progress_update.elapsed() >= Duration::from_millis(200) {
+            // Send progress update every 100ms for more responsive UI
+            if last_progress_update.elapsed() >= Duration::from_millis(100) {
                 let elapsed = start_time.elapsed();
-                let throughput_mbps = (bytes_written as f64) / (1024.0 * 1024.0) / elapsed.as_secs_f64();
-                let iops = latency_samples.len() as f64 / elapsed.as_secs_f64();
+                let throughput_mbps = if elapsed.as_secs_f64() > 0.0 {
+                    (bytes_written as f64) / (1024.0 * 1024.0) / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+                let iops = if elapsed.as_secs_f64() > 0.0 {
+                    latency_samples.len() as f64 / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
                 
-                let eta = if bytes_written > 0 {
-                    let rate = bytes_written as f64 / elapsed.as_secs_f64();
-                    let remaining_bytes = self.config.file_size - bytes_written;
-                    Some(Duration::from_secs_f64(remaining_bytes as f64 / rate))
+                let eta = if bytes_written > 0 && throughput_mbps > 0.0 {
+                    let remaining_mb = (self.config.file_size - bytes_written) as f64 / (1024.0 * 1024.0);
+                    Some(Duration::from_secs_f64(remaining_mb / throughput_mbps))
                 } else {
                     None
                 };
@@ -145,11 +162,16 @@ impl SequentialBenchmark {
             }
         }
         
-        // Force sync to disk
+        // Force sync to disk to ensure all data is written
+        println!("Syncing {} bytes to disk...", bytes_written);
         temp_file.file.sync_all()
-            .map_err(|e| DIOrbError::BenchmarkError(format!("Sync failed: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("Sync operation failed: {}", e);
+                DIOrbError::BenchmarkError(format!("Sync failed: {}", e))
+            })?;
         
         let total_elapsed = start_time.elapsed();
+        println!("Write test completed: {} bytes in {:?}", bytes_written, total_elapsed);
         
         // Calculate final metrics
         let metrics = self.calculate_metrics(bytes_written, total_elapsed, &latency_samples);
@@ -173,10 +195,13 @@ impl SequentialBenchmark {
         let start_time = Instant::now();
         
         // Create and write test file first
+        println!("Creating test file for read benchmark...");
         let mut temp_file = self.create_test_file().await?;
         if self.config.keep_temp_files {
             temp_file.keep_on_drop();
         }
+        
+        println!("Opening file for reading: {}", temp_file.path().display());
         
         // Reopen file for reading
         let mut read_file = self.disk_io.open_direct_read(temp_file.path())?;
@@ -187,6 +212,9 @@ impl SequentialBenchmark {
         let mut bytes_read = 0u64;
         let mut latency_samples = Vec::new();
         let mut last_progress_update = Instant::now();
+        
+        println!("Starting sequential read test: {} bytes in {} byte blocks", 
+                 self.config.file_size, self.config.block_size);
         
         // Read data in blocks
         while bytes_read < self.config.file_size {
@@ -199,9 +227,13 @@ impl SequentialBenchmark {
             
             // Perform read operation
             let read_bytes = read_file.read_direct(read_buffer)
-                .map_err(|e| DIOrbError::BenchmarkError(format!("Read failed: {}", e)))?;
+                .map_err(|e| {
+                    eprintln!("Read operation failed at byte {}: {}", bytes_read, e);
+                    DIOrbError::BenchmarkError(format!("Read failed at byte {}: {}", bytes_read, e))
+                })?;
             
             if read_bytes == 0 {
+                println!("EOF reached at {} bytes (expected {})", bytes_read, self.config.file_size);
                 break; // EOF reached
             }
             
@@ -210,16 +242,23 @@ impl SequentialBenchmark {
             
             bytes_read += read_bytes as u64;
             
-            // Send progress update every 200ms
-            if last_progress_update.elapsed() >= Duration::from_millis(200) {
+            // Send progress update every 100ms for more responsive UI
+            if last_progress_update.elapsed() >= Duration::from_millis(100) {
                 let elapsed = start_time.elapsed();
-                let throughput_mbps = (bytes_read as f64) / (1024.0 * 1024.0) / elapsed.as_secs_f64();
-                let iops = latency_samples.len() as f64 / elapsed.as_secs_f64();
+                let throughput_mbps = if elapsed.as_secs_f64() > 0.0 {
+                    (bytes_read as f64) / (1024.0 * 1024.0) / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
+                let iops = if elapsed.as_secs_f64() > 0.0 {
+                    latency_samples.len() as f64 / elapsed.as_secs_f64()
+                } else {
+                    0.0
+                };
                 
-                let eta = if bytes_read > 0 {
-                    let rate = bytes_read as f64 / elapsed.as_secs_f64();
-                    let remaining_bytes = self.config.file_size - bytes_read;
-                    Some(Duration::from_secs_f64(remaining_bytes as f64 / rate))
+                let eta = if bytes_read > 0 && throughput_mbps > 0.0 {
+                    let remaining_mb = (self.config.file_size - bytes_read) as f64 / (1024.0 * 1024.0);
+                    Some(Duration::from_secs_f64(remaining_mb / throughput_mbps))
                 } else {
                     None
                 };
@@ -243,6 +282,7 @@ impl SequentialBenchmark {
         }
         
         let total_elapsed = start_time.elapsed();
+        println!("Read test completed: {} bytes in {:?}", bytes_read, total_elapsed);
         
         // Calculate final metrics
         let metrics = self.calculate_metrics(bytes_read, total_elapsed, &latency_samples);
@@ -274,22 +314,36 @@ impl SequentialBenchmark {
         
         let mut bytes_written = 0u64;
         
+        println!("Creating test file: {} bytes", self.config.file_size);
+        
         // Write data to create test file
         while bytes_written < self.config.file_size {
             let remaining = self.config.file_size - bytes_written;
-            let write_size = std::cmp::min(remaining, self.config.block_size);
-            let write_buffer = &buffer[..write_size as usize];
+            let write_size = std::cmp::min(remaining, self.config.block_size) as usize;
+            let write_buffer = &buffer[..write_size];
             
             let written = temp_file.file.write_direct(write_buffer)
-                .map_err(|e| DIOrbError::BenchmarkError(format!("Test file creation failed: {}", e)))?;
+                .map_err(|e| {
+                    eprintln!("Test file creation failed at byte {}: {}", bytes_written, e);
+                    DIOrbError::BenchmarkError(format!("Test file creation failed at byte {}: {}", bytes_written, e))
+                })?;
+            
+            if written == 0 {
+                return Err(DIOrbError::BenchmarkError("Test file write returned 0 bytes".to_string()));
+            }
             
             bytes_written += written as u64;
         }
         
         // Force sync to disk
+        println!("Syncing test file to disk...");
         temp_file.file.sync_all()
-            .map_err(|e| DIOrbError::BenchmarkError(format!("Test file sync failed: {}", e)))?;
+            .map_err(|e| {
+                eprintln!("Test file sync failed: {}", e);
+                DIOrbError::BenchmarkError(format!("Test file sync failed: {}", e))
+            })?;
         
+        println!("Test file created successfully: {} bytes", bytes_written);
         Ok(temp_file)
     }
     

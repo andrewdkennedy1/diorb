@@ -4,13 +4,12 @@
 
 use crate::{
     app::{
-        screens::{ConfigScreen, ResultAction, RunningScreen, StartScreen, ResultsScreen},
+        screens::{ConfigScreen, ResultAction, RunningScreen, StartScreen, StartScreenAction, ResultsScreen},
         state::{AppState, NavigationAction, StateManager},
         tui::Tui,
     },
     bench::worker::WorkerManager,
     config::{persistence, BenchmarkConfig},
-    models::result::BenchmarkResult,
     Result,
 };
 use std::io;
@@ -61,6 +60,8 @@ impl App {
 
     /// Run the main application loop
     pub async fn run(&mut self) -> Result<()> {
+        println!("Starting application in state: {:?}", self.state_manager.current_state());
+        
         while !self.state_manager.should_quit() {
             if let Some(rx) = &mut self.progress_rx {
                 if let Ok(progress) = rx.try_recv() {
@@ -91,33 +92,50 @@ impl App {
     /// Handle keyboard events and update state
     async fn handle_events(&mut self) -> Result<()> {
         if let Some(key) = self.tui.handle_events()? {
-            let nav_action = StateManager::key_to_navigation(key);
+            println!("Received key event: {:?} in state: {:?}", key, self.state_manager.current_state());
             
-            // Global key handling
-            if nav_action == NavigationAction::Quit {
+            // Global quit handling for all screens
+            if matches!(key.code, crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Char('Q')) ||
+               (key.code == crossterm::event::KeyCode::Char('c') && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)) {
                 self.state_manager.quit();
                 return Ok(());
             }
 
             // Screen-specific key handling
             match self.state_manager.current_state().clone() {
-                AppState::Start => self.handle_start_screen_events(nav_action).await?,
+                AppState::Start => self.handle_start_screen_events(key).await?,
                 AppState::Config => self.handle_config_screen_events(key).await?,
-                AppState::Running => self.handle_running_screen_events(nav_action).await,
-                AppState::Results => self.handle_results_screen_events(nav_action),
+                AppState::Running => {
+                    let nav_action = StateManager::key_to_navigation(key);
+                    self.handle_running_screen_events(nav_action).await;
+                }
+                AppState::Results => {
+                    let nav_action = StateManager::key_to_navigation(key);
+                    self.handle_results_screen_events(nav_action);
+                }
                 _ => {}
             }
         }
         Ok(())
     }
 
-    async fn handle_start_screen_events(&mut self, action: NavigationAction) -> Result<()> {
+    async fn handle_start_screen_events(&mut self, key: crossterm::event::KeyEvent) -> Result<()> {
+        println!("Start screen received key: {:?}", key);
+        let action = self.start_screen.handle_key(key.code);
+        println!("Start screen action: {:?}", action);
+        
         match action {
-            NavigationAction::Up => self.start_screen.select_previous(),
-            NavigationAction::Down => self.start_screen.select_next(),
-            NavigationAction::Select => {
-                // Start benchmark with default config for selected disk
-                self.config = BenchmarkConfig::default().with_disk_path(self.start_screen.selected_disk().clone());
+            StartScreenAction::StartTest => {
+                println!("User selected StartTest - beginning benchmark");
+                // Start 1GB speed test with selected disk
+                self.config = BenchmarkConfig::sequential_write()
+                    .with_disk_path(self.start_screen.selected_disk().clone())
+                    .with_file_size(1024 * 1024 * 1024) // 1GB
+                    .with_block_size(64 * 1024) // 64KB blocks for good performance
+                    .with_thread_count(1); // Single thread for initial test
+                
+                println!("Starting 1GB sequential write test on: {}", self.config.disk_path.display());
+                
                 let mut manager = WorkerManager::new(self.config.clone())?;
                 let (tx, rx) = mpsc::channel(100);
                 manager.start_benchmark(tx).await?;
@@ -125,25 +143,38 @@ impl App {
                 self.progress_rx = Some(rx);
                 self.state_manager.transition_to(AppState::Running);
             }
-            NavigationAction::Back => self.state_manager.quit(),
-            _ => {}
+            StartScreenAction::OpenConfig => {
+                // Set disk path in config and open config screen
+                self.config = self.config.clone().with_disk_path(self.start_screen.selected_disk().clone());
+                self.config_screen = ConfigScreen::new(&self.config);
+                self.state_manager.transition_to(AppState::Config);
+            }
+            StartScreenAction::Quit => {
+                self.state_manager.quit();
+            }
+            StartScreenAction::None => {}
         }
         Ok(())
     }
 
     async fn handle_config_screen_events(&mut self, key: crossterm::event::KeyEvent) -> Result<()> {
-        if let Some(new_screen) = self.config_screen.handle_key_event(key) {
-            if new_screen == AppState::Start {
-                 // Potentially save config before exiting
-                self.config = self.config_screen.get_config();
-                let mut manager = WorkerManager::new(self.config.clone())?;
-                let (tx, rx) = mpsc::channel(100);
-                manager.start_benchmark(tx).await?;
-                self.worker_manager = Some(manager);
-                self.progress_rx = Some(rx);
-                self.state_manager.transition_to(AppState::Running);
-            } else {
-                self.state_manager.go_back();
+        if let Some(action) = self.config_screen.handle_key_event(key) {
+            match action {
+                AppState::Running => {
+                    // Start benchmark with configured settings
+                    self.config = self.config_screen.get_config();
+                    let mut manager = WorkerManager::new(self.config.clone())?;
+                    let (tx, rx) = mpsc::channel(100);
+                    manager.start_benchmark(tx).await?;
+                    self.worker_manager = Some(manager);
+                    self.progress_rx = Some(rx);
+                    self.state_manager.transition_to(AppState::Running);
+                }
+                AppState::Start => {
+                    // Go back to start screen
+                    self.state_manager.go_back();
+                }
+                _ => {}
             }
         }
         Ok(())

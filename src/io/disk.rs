@@ -1,5 +1,5 @@
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{self, SeekFrom};
 use std::path::{Path, PathBuf};
 
 /// Cross-platform disk I/O operations trait
@@ -106,14 +106,19 @@ mod windows_impl {
     
     impl DirectFile for WindowsDirectFile {
         fn write_direct(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.file.write(buf)
+            use std::io::Write;
+            let result = self.file.write(buf)?;
+            self.file.flush()?; // Ensure data is written immediately
+            Ok(result)
         }
         
         fn read_direct(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            use std::io::Read;
             self.file.read(buf)
         }
         
         fn seek_direct(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            use std::io::Seek;
             self.file.seek(pos)
         }
         
@@ -128,23 +133,43 @@ mod windows_impl {
     
     impl DiskIO for PlatformDiskIO {
         fn open_direct_write(&self, path: &Path) -> io::Result<Box<dyn DirectFile>> {
-            let file = OpenOptions::new()
+            // Try direct I/O first, fall back to regular file operations
+            match OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
                 .custom_flags(FILE_FLAG_WRITE_THROUGH | FILE_FLAG_NO_BUFFERING)
-                .open(path)?;
-            
-            Ok(Box::new(WindowsDirectFile::new(file)))
+                .open(path)
+            {
+                Ok(file) => Ok(Box::new(WindowsDirectFile::new(file))),
+                Err(_) => {
+                    // Fallback to regular file operations
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .open(path)?;
+                    Ok(Box::new(WindowsDirectFile::new(file)))
+                }
+            }
         }
         
         fn open_direct_read(&self, path: &Path) -> io::Result<Box<dyn DirectFile>> {
-            let file = OpenOptions::new()
+            // Try direct I/O first, fall back to regular file operations
+            match OpenOptions::new()
                 .read(true)
                 .custom_flags(FILE_FLAG_NO_BUFFERING)
-                .open(path)?;
-            
-            Ok(Box::new(WindowsDirectFile::new(file)))
+                .open(path)
+            {
+                Ok(file) => Ok(Box::new(WindowsDirectFile::new(file))),
+                Err(_) => {
+                    // Fallback to regular file operations
+                    let file = OpenOptions::new()
+                        .read(true)
+                        .open(path)?;
+                    Ok(Box::new(WindowsDirectFile::new(file)))
+                }
+            }
         }
         
         fn create_temp_file(&self, target_dir: &Path, _size_hint: u64) -> io::Result<TempFile> {
@@ -182,7 +207,9 @@ mod unix_impl {
     
     impl DirectFile for UnixDirectFile {
         fn write_direct(&mut self, buf: &[u8]) -> io::Result<usize> {
+            use std::io::Write;
             let result = self.file.write(buf)?;
+            self.file.flush()?; // Ensure data is written immediately
             if self.use_fsync {
                 self.file.sync_all()?;
             }
@@ -190,10 +217,12 @@ mod unix_impl {
         }
         
         fn read_direct(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            use std::io::Read;
             self.file.read(buf)
         }
         
         fn seek_direct(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            use std::io::Seek;
             self.file.seek(pos)
         }
         

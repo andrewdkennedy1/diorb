@@ -9,6 +9,6 @@ pub mod state;
 pub mod tui;
 
 pub use app::App;
-pub use screens::{StartScreen, RunningScreen, ResultsScreen, ResultAction};
+pub use screens::{StartScreen, StartScreenAction, RunningScreen, ResultsScreen, ResultAction};
 pub use state::{AppState, NavigationAction, StateManager};
 pub use tui::Tui;
