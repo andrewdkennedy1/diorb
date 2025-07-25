@@ -1,17 +1,17 @@
 //! DIORB - Disk IO Rust Bench
-//! 
+//!
 //! A cross-platform TUI application for disk performance benchmarking
 //! with real-time feedback and accurate measurements.
 
 use std::fmt;
 
 // Public re-exports
-pub mod config;
-pub mod models;
-pub mod util;
-pub mod io;
 pub mod bench;
-pub mod app;
+pub mod config;
+pub mod io;
+pub mod models;
+pub mod simple;
+pub mod util;
 
 // Common error types
 #[derive(Debug)]
@@ -133,10 +133,7 @@ pub mod error {
     }
 
     /// Retry a fallible async operation with exponential backoff
-    pub async fn retry_async<F, Fut, T>(
-        operation: F,
-        config: RetryConfig,
-    ) -> Result<T>
+    pub async fn retry_async<F, Fut, T>(operation: F, config: RetryConfig) -> Result<T>
     where
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<T>>,
@@ -149,7 +146,7 @@ pub mod error {
                 Ok(result) => return Ok(result),
                 Err(err) => {
                     last_error = Some(err);
-                    
+
                     // Don't retry on certain error types
                     if let Some(ref error) = last_error {
                         if !is_retryable_error(error) {
@@ -161,7 +158,9 @@ pub mod error {
                     if attempt < config.max_attempts - 1 {
                         sleep(delay).await;
                         delay = std::cmp::min(
-                            Duration::from_millis((delay.as_millis() as f64 * config.backoff_multiplier) as u64),
+                            Duration::from_millis(
+                                (delay.as_millis() as f64 * config.backoff_multiplier) as u64,
+                            ),
                             config.max_delay,
                         );
                     }
@@ -169,7 +168,9 @@ pub mod error {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| DIOrbError::BenchmarkError("Retry failed with no error".to_string())))
+        Err(last_error.unwrap_or_else(|| {
+            DIOrbError::BenchmarkError("Retry failed with no error".to_string())
+        }))
     }
 
     /// Check if an error is retryable
@@ -188,13 +189,13 @@ pub mod error {
             }
             DIOrbError::TempFileError(_) => true,
             DIOrbError::WorkerError(_) => true,
-            
+
             // Non-retryable errors
             DIOrbError::PermissionDenied(_) => false,
             DIOrbError::ConfigError(_) => false,
             DIOrbError::DirectIoUnsupported(_) => false,
             DIOrbError::CancellationError(_) => false,
-            
+
             // Other errors are retryable by default
             _ => true,
         }
@@ -204,13 +205,15 @@ pub mod error {
     pub fn user_friendly_message(error: &DIOrbError) -> String {
         match error {
             DIOrbError::PermissionDenied(_) => {
-                "Permission denied. Try running as administrator or check file permissions.".to_string()
+                "Permission denied. Try running as administrator or check file permissions."
+                    .to_string()
             }
             DIOrbError::InsufficientSpace(_) => {
                 "Insufficient disk space. Free up space or choose a smaller file size.".to_string()
             }
             DIOrbError::DirectIoUnsupported(_) => {
-                "Direct I/O not supported on this filesystem. Results may be less accurate.".to_string()
+                "Direct I/O not supported on this filesystem. Results may be less accurate."
+                    .to_string()
             }
             DIOrbError::TempFileError(_) => {
                 "Failed to create temporary files. Check disk space and permissions.".to_string()
@@ -221,9 +224,7 @@ pub mod error {
             DIOrbError::PersistenceError(_) => {
                 "Failed to save results. Check disk space and permissions.".to_string()
             }
-            DIOrbError::CancellationError(_) => {
-                "Operation was cancelled by user.".to_string()
-            }
+            DIOrbError::CancellationError(_) => "Operation was cancelled by user.".to_string(),
             _ => error.to_string(),
         }
     }
@@ -231,15 +232,18 @@ pub mod error {
     /// Create fallback strategies for common errors
     pub fn create_fallback_strategy(error: &DIOrbError) -> Option<String> {
         match error {
-            DIOrbError::DirectIoUnsupported(_) => {
-                Some("Falling back to buffered I/O. Results may be less accurate but still useful.".to_string())
-            }
-            DIOrbError::PermissionDenied(_) => {
-                Some("Try selecting a different disk location or running with elevated privileges.".to_string())
-            }
-            DIOrbError::InsufficientSpace(_) => {
-                Some("Consider reducing the file size or selecting a different disk with more space.".to_string())
-            }
+            DIOrbError::DirectIoUnsupported(_) => Some(
+                "Falling back to buffered I/O. Results may be less accurate but still useful."
+                    .to_string(),
+            ),
+            DIOrbError::PermissionDenied(_) => Some(
+                "Try selecting a different disk location or running with elevated privileges."
+                    .to_string(),
+            ),
+            DIOrbError::InsufficientSpace(_) => Some(
+                "Consider reducing the file size or selecting a different disk with more space."
+                    .to_string(),
+            ),
             _ => None,
         }
     }

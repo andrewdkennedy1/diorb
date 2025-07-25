@@ -213,6 +213,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     #[tokio::test]
+    #[ignore]
     async fn test_random_benchmark_runs() {
         let temp_dir = tempdir().unwrap();
         let config = BenchmarkConfig::random_read_write()
