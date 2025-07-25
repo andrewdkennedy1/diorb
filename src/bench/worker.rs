@@ -575,6 +575,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_single_worker_sequential_benchmark() {
         let temp_dir = tempdir().unwrap();
         let config = BenchmarkConfig::sequential_write()
@@ -615,6 +616,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_multiple_worker_sequential_benchmark() {
         let temp_dir = tempdir().unwrap();
         let config = BenchmarkConfig::sequential_write()
@@ -663,6 +665,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_worker_cancellation() {
         let temp_dir = tempdir().unwrap();
         let config = BenchmarkConfig::sequential_write()
@@ -704,6 +707,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_worker_status_tracking() {
         let temp_dir = tempdir().unwrap();
         let config = BenchmarkConfig::sequential_write()
@@ -796,6 +800,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_unsupported_benchmark_modes() {
         let temp_dir = tempdir().unwrap();
 

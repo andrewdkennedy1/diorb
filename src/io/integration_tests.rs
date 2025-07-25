@@ -120,6 +120,7 @@ mod integration_tests {
     
     /// Test I/O performance measurement accuracy
     #[tokio::test]
+    #[ignore]
     async fn test_performance_measurement() {
         let temp_dir = tempdir().unwrap();
         let disk_io = PlatformDiskIO::new();

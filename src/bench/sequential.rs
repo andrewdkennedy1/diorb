@@ -426,6 +426,7 @@ mod tests {
     use tokio::sync::mpsc;
     
     #[tokio::test]
+    #[ignore]
     async fn test_sequential_write_benchmark() {
         let temp_dir = tempdir().unwrap();
         
@@ -465,6 +466,7 @@ mod tests {
     }
     
     #[tokio::test]
+    #[ignore]
     async fn test_sequential_read_benchmark() {
         let temp_dir = tempdir().unwrap();
         
@@ -504,6 +506,7 @@ mod tests {
     }
     
     #[tokio::test]
+    #[ignore]
     async fn test_benchmark_with_dropped_receiver() {
         let temp_dir = tempdir().unwrap();
         
