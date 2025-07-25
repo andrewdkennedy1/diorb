@@ -1,13 +1,13 @@
 //! Configuration screen implementation
-//! 
+//!
 //! Allows users to select benchmark parameters using drop-down menus
 //! and real-time input validation.
 
+use crate::util::units::format_duration;
 use crate::{
     app::state::AppState,
     config::{BenchmarkConfig, BenchmarkMode},
 };
-use crate::util::units::format_duration;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
@@ -132,20 +132,23 @@ impl ConfigScreen {
             self.dropdown_state.select(Some(selected + 1));
         }
     }
-    
+
     fn confirm_selection(&mut self) {
         let selected_index = self.dropdown_state.selected().unwrap_or(0);
         let field = &self.fields[self.selected_field_index];
-        
+
         match field {
             ConfigField::Disk => {
                 let disks = self.get_disk_options();
                 self.config.disk_path = PathBuf::from(disks[selected_index].clone());
-            },
+            }
             ConfigField::Mode => {
                 let modes = self.get_mode_options();
                 self.config.mode = modes[selected_index].clone();
-            },
+                // Update defaults when mode changes
+                self.config.block_size = self.config.mode.default_block_size();
+                self.config.thread_count = self.config.mode.default_thread_count();
+            }
             ConfigField::FileSize => {
                 let sizes = self.get_filesize_options();
                 self.config.file_size = sizes[selected_index];
@@ -170,11 +173,31 @@ impl ConfigScreen {
         let field = &self.fields[self.selected_field_index];
         match field {
             ConfigField::Disk => self.get_disk_options(),
-            ConfigField::Mode => self.get_mode_options().iter().map(|m| format!("{:?}", m)).collect(),
-            ConfigField::FileSize => self.get_filesize_options().iter().map(|s| s.to_string()).collect(),
-            ConfigField::BlockSize => self.get_blocksize_options().iter().map(|s| s.to_string()).collect(),
-            ConfigField::Duration => self.get_duration_options().iter().map(|d| format_duration(*d)).collect(),
-            ConfigField::Threads => self.get_thread_options().iter().map(|t| t.to_string()).collect(),
+            ConfigField::Mode => self
+                .get_mode_options()
+                .iter()
+                .map(|m| format!("{:?}", m))
+                .collect(),
+            ConfigField::FileSize => self
+                .get_filesize_options()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            ConfigField::BlockSize => self
+                .get_blocksize_options()
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            ConfigField::Duration => self
+                .get_duration_options()
+                .iter()
+                .map(|d| format_duration(*d))
+                .collect(),
+            ConfigField::Threads => self
+                .get_thread_options()
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
         }
     }
 
@@ -265,12 +288,7 @@ impl ConfigScreen {
     }
 
     fn get_blocksize_options(&self) -> Vec<u64> {
-        vec![
-            512,
-            4 * 1024,
-            128 * 1024,
-            1 * 1024 * 1024,
-        ]
+        vec![512, 4 * 1024, 128 * 1024, 1 * 1024 * 1024]
     }
 
     fn get_duration_options(&self) -> Vec<Duration> {
@@ -309,14 +327,19 @@ impl ConfigScreen {
 
     fn render_title(&self, frame: &mut Frame, area: Rect) {
         let title = Paragraph::new("Benchmark Configuration")
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center)
             .block(Block::default().borders(Borders::ALL));
         frame.render_widget(title, area);
     }
 
     fn render_fields(&self, frame: &mut Frame, area: Rect) {
-        let constraints: Vec<Constraint> = self.fields.iter().map(|_| Constraint::Length(3)).collect();
+        let constraints: Vec<Constraint> =
+            self.fields.iter().map(|_| Constraint::Length(3)).collect();
         let field_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(constraints)
@@ -334,7 +357,7 @@ impl ConfigScreen {
             frame.render_widget(p, field_chunks[i]);
         }
     }
-    
+
     fn get_field_value(&self, field: &ConfigField) -> String {
         match field {
             ConfigField::Disk => self.config.disk_path.to_string_lossy().to_string(),
@@ -358,13 +381,17 @@ impl ConfigScreen {
         let options = self.get_current_options();
         let items: Vec<ListItem> = options.iter().map(|o| ListItem::new(o.as_str())).collect();
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("Select an option"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Select an option"),
+            )
             .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black))
             .highlight_symbol(">> ");
 
         let list_height = (options.len() + 2).min(10) as u16;
         let list_area = centered_rect(50, list_height, area);
-        
+
         frame.render_widget(Clear, list_area);
         frame.render_stateful_widget(list, list_area, &mut self.dropdown_state);
     }
@@ -388,4 +415,40 @@ fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent};
+
+    #[test]
+    fn test_field_navigation() {
+        let cfg = BenchmarkConfig::default();
+        let mut screen = ConfigScreen::new(&cfg);
+        assert_eq!(screen.selected_field_index, 0);
+        screen.select_next_field();
+        assert_eq!(screen.selected_field_index, 1);
+        screen.select_previous_field();
+        assert_eq!(screen.selected_field_index, 0);
+    }
+
+    #[test]
+    fn test_mode_default_updates() {
+        let cfg = BenchmarkConfig::default();
+        let mut screen = ConfigScreen::new(&cfg);
+        // select Mode field
+        screen.selected_field_index = 1; // Mode
+        screen.is_dropdown_active = true;
+        screen.dropdown_state.select(Some(2)); // RandomReadWrite
+        screen.handle_key_event(KeyEvent::from(KeyCode::Enter));
+        assert!(matches!(
+            screen.get_config().mode,
+            BenchmarkMode::RandomReadWrite
+        ));
+        assert_eq!(
+            screen.get_config().block_size,
+            BenchmarkMode::RandomReadWrite.default_block_size()
+        );
+    }
 }

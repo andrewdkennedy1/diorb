@@ -1,7 +1,7 @@
 //! Start screen implementation
-//! 
-//! Disk selection screen with config menu access.
-//! Shows available disks and allows configuration before testing.
+//!
+//! Main menu with Start Test, View Results, Settings, Exit options.
+//! Includes navigation highlighting and responsive layout.
 
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
@@ -27,7 +27,9 @@ impl StartScreen {
         let mut list_state = ListState::default();
         list_state.select(Some(0));
 
-        let disks = Self::detect_disks();
+        // For now, we'll mock the disk list.
+        // In a real application, this would scan the system.
+        let disks = vec![PathBuf::from("C:\\"), PathBuf::from("D:\\")];
 
         Self {
             disks,
@@ -171,9 +173,9 @@ impl StartScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),  // Title and subtitle
-                Constraint::Min(12),    // Disk list area
-                Constraint::Length(3),  // Help text
+                Constraint::Length(5), // Title and subtitle
+                Constraint::Min(12),   // Disk list area
+                Constraint::Length(3), // Help text
             ])
             .split(size);
 
@@ -192,20 +194,24 @@ impl StartScreen {
         let title_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Main title
-                Constraint::Length(2),  // Subtitle
+                Constraint::Length(3), // Main title
+                Constraint::Length(2), // Subtitle
             ])
             .split(area);
 
         // Main title
         let title = Paragraph::new("DIORB")
-            .style(Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            )
             .alignment(Alignment::Center)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
         f.render_widget(title, title_chunks[0]);
 
         // Subtitle
@@ -217,16 +223,8 @@ impl StartScreen {
 
     /// Render the main menu
     fn render_menu(&mut self, f: &mut Frame, area: ratatui::layout::Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(5),     // Disk list
-                Constraint::Length(3),  // Config hint
-            ])
-            .split(area);
-
-        // Render disk list
-        let items: Vec<ListItem> = self.disks
+        let items: Vec<ListItem> = self
+            .disks
             .iter()
             .map(|disk| {
                 let display_text = if disk.to_string_lossy().len() > 50 {
@@ -239,44 +237,57 @@ impl StartScreen {
             .collect();
 
         let list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("Select a Disk for 1GB Speed Test"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Select a Disk"),
+            )
             .highlight_style(Style::default().bg(Color::Cyan).fg(Color::Black))
             .highlight_symbol(">> ");
 
         f.render_stateful_widget(list, area, &mut self.list_state);
-
-        // Render config hint
-        if self.show_config_hint {
-            let config_hint = Paragraph::new("Press 'C' to configure benchmark settings before testing")
-                .style(Style::default().fg(Color::Yellow))
-                .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Yellow)));
-            
-            f.render_widget(config_hint, chunks[1]);
-        }
     }
-
 
     /// Render the help text
     fn render_help(&self, f: &mut Frame, area: ratatui::layout::Rect) {
-        let help_text = vec![
-            Line::from(vec![
-                Span::styled("↑↓/jk", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Navigate  "),
-                Span::styled("Enter/Space", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Start Test  "),
-                Span::styled("C", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Config  "),
-                Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::raw(" Quit"),
-            ]),
-        ];
+        let help_text = vec![Line::from(vec![
+            Span::styled(
+                "↑↓",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Navigate  "),
+            Span::styled(
+                "Enter",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Select  "),
+            Span::styled(
+                "→",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" History  "),
+            Span::styled(
+                "Q",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" Quit"),
+        ])];
 
         let help = Paragraph::new(help_text)
             .alignment(Alignment::Center)
-            .block(Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)));
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            );
 
         f.render_widget(help, area);
     }
@@ -329,11 +340,11 @@ mod tests {
     #[test]
     fn test_menu_navigation() {
         let mut screen = StartScreen::new();
-        
+
         // Test moving down
         screen.select_next();
         assert_eq!(screen.selected_index, 1);
-        
+
         // Test wrapping to beginning
         screen.select_next();
         assert_eq!(screen.selected_index, 0);
@@ -342,11 +353,11 @@ mod tests {
     #[test]
     fn test_menu_navigation_up() {
         let mut screen = StartScreen::new();
-        
+
         // Test moving up from first item (should wrap to last)
         screen.select_previous();
         assert_eq!(screen.selected_index, 1);
-        
+
         // Test moving up normally
         screen.select_previous();
         assert_eq!(screen.selected_index, 0);

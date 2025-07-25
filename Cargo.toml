@@ -17,6 +17,7 @@ humantime = "2.1"
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
 dirs = "5.0"
+rand = { version = "0.8", features = ["small_rng"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
